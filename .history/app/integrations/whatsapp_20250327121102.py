@@ -153,7 +153,7 @@ def send_country_selection_list(wa_id):
             {"id": "country_172", "title": "Panamá", "description": "República de Panamá"},
             {"id": "country_111", "title": "Jamaica", "description": "Jamaica"},
             {"id": "country_18", "title": "Barbados", "description": "Barbados"},
-            {"id": "country_171", "title": "Otro", "description": "Otro país no listado"}
+            {"id": "country_other", "title": "Otro", "description": "Otro país no listado"}
         ]
     }
     
@@ -234,8 +234,7 @@ def get_country_name_from_id(country_id):
         50: "Costa Rica",
         172: "Panamá",
         111: "Jamaica",
-        18: "Barbados",
-        171: "Other"
+        18: "Barbados"
     }
     
     return country_map.get(country_id)
@@ -479,6 +478,8 @@ def close_session_with_message(wa_id, name):
     session_manager.end_session(wa_id)
     logging.info(f"Sesión cerrada voluntariamente para {name} ({wa_id})")
 
+# Esta sección reemplaza la función handle_ticket_creation existente
+
 def handle_ticket_creation(wa_id, name, message_body, session):
     """
     Maneja el flujo de creación de un ticket de soporte.
@@ -719,6 +720,8 @@ def handle_ticket_creation(wa_id, name, message_body, session):
         
     return response
 
+# Esta sección reemplaza la función process_message existente
+
 def process_message(message_data):
     """
     Procesa un mensaje de WhatsApp y genera una respuesta.
@@ -781,34 +784,25 @@ def process_message(message_data):
             # Proceso de creación de ticket
             response = handle_ticket_creation(wa_id, name, message_body, session)
             
-        # Detectar intención de crear ticket
-        elif detect_ticket_intent(message_body) and session['state'] != 'TICKET_CREATION':
-            response = "Parece que necesitas ayuda con un problema. Me gustaría crear un ticket de soporte para que nuestro equipo pueda asistirte."
-            session_manager.update_session(
-                wa_id, 
-                state='TICKET_CREATION', 
-                context={'ticket_step': 'initial'},  # Cambio de 'description' a 'initial'
-                last_message_type='text'  # Resetear tipo de mensaje
-            )
-            
-            # Iniciar inmediatamente el flujo de creación de ticket enviando la lista de países
-            try:
-                send_country_selection_list(wa_id)
-                logging.info(f"Lista de países enviada a {name} al iniciar ticket")
-                response += " Para comenzar, por favor selecciona el país donde se encuentra el proyecto de la lista que aparece a continuación."
-            except Exception as e:
-                logging.error(f"Error al enviar lista de países inicial: {str(e)}")
-                response += " Para comenzar, por favor indica el país donde se encuentra el proyecto."
-            
-        else:
-            # Procesar con IA para otros mensajes
-            try:
-                # Importar aquí para evitar dependencia circular
-                from app.integrations.openai import generate_ai_response
-                response = generate_ai_response(message_body, wa_id, name)
-            except Exception as e:
-                logging.error(f"Error al procesar respuesta de IA: {str(e)}")
-                response = "Lo siento, estoy experimentando dificultades técnicas en este momento. ¿Hay algo más en lo que pueda ayudarte?"
+# Actualizar esta sección en process_message
+# Detectar intención de crear ticket
+elif detect_ticket_intent(message_body) and session['state'] != 'TICKET_CREATION':
+    response = "Parece que necesitas ayuda con un problema. Me gustaría crear un ticket de soporte para que nuestro equipo pueda asistirte."
+    session_manager.update_session(
+        wa_id, 
+        state='TICKET_CREATION', 
+        context={'ticket_step': 'initial'},  # Cambio de 'description' a 'initial'
+        last_message_type='text'  # Resetear tipo de mensaje
+    )
+    
+    # Iniciar inmediatamente el flujo de creación de ticket enviando la lista de países
+    try:
+        send_country_selection_list(wa_id)
+        logging.info(f"Lista de países enviada a {name} al iniciar ticket")
+        response += " Para comenzar, por favor selecciona el país donde se encuentra el proyecto de la lista que aparece a continuación."
+    except Exception as e:
+        logging.error(f"Error al enviar lista de países inicial: {str(e)}")
+        response += " Para comenzar, por favor indica el país donde se encuentra el proyecto."
     
     # Manejar respuestas de listas interactivas (selección de país)
     elif message_type == "interactive_list":

@@ -153,7 +153,7 @@ def send_country_selection_list(wa_id):
             {"id": "country_172", "title": "Panamá", "description": "República de Panamá"},
             {"id": "country_111", "title": "Jamaica", "description": "Jamaica"},
             {"id": "country_18", "title": "Barbados", "description": "Barbados"},
-            {"id": "country_171", "title": "Otro", "description": "Otro país no listado"}
+            {"id": "country_", "title": "Otro", "description": "Otro país no listado"}
         ]
     }
     
@@ -234,8 +234,7 @@ def get_country_name_from_id(country_id):
         50: "Costa Rica",
         172: "Panamá",
         111: "Jamaica",
-        18: "Barbados",
-        171: "Other"
+        18: "Barbados"
     }
     
     return country_map.get(country_id)

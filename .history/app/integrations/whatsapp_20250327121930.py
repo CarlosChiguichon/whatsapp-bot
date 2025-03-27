@@ -234,8 +234,7 @@ def get_country_name_from_id(country_id):
         50: "Costa Rica",
         172: "Panamá",
         111: "Jamaica",
-        18: "Barbados",
-        171: "Other"
+        18: "Barbados"
     }
     
     return country_map.get(country_id)
