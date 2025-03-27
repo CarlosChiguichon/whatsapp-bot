@@ -243,7 +243,6 @@ def get_country_name_from_id(country_id):
 def send_market_segment_list(wa_id):
     """
     Envía una lista de selección de segmentos de mercado al usuario.
-    Versión optimizada para evitar errores 400.
     
     Args:
         wa_id (str): ID de WhatsApp del usuario
@@ -255,49 +254,29 @@ def send_market_segment_list(wa_id):
     body_text = "Por favor selecciona el segmento de mercado del proyecto:"
     button_text = "Ver segmentos"
     
-    # Definir las opciones de segmentos - versión simplificada
+    # Definir las opciones de segmentos
     segments_section = {
         "title": "Segmentos disponibles",
         "rows": [
-            {"id": "segment_1", "title": "Residencial", "description": "DG"},
-            {"id": "segment_2", "title": "Comercial e Industrial", "description": "C&I"},
-            {"id": "segment_3", "title": "Utility Scale", "description": "Utility Scale"},
-            {"id": "segment_4", "title": "Misceláneo", "description": "Misceláneo"},
-            {"id": "segment_6", "title": "Almacenamiento (UT)", "description": "Utility Scale"},
-            {"id": "segment_7", "title": "Almacenamiento (C&I)", "description": "Commercial & Industrial"}
+            {"id": "segment_1", "title": "Residencial", "description": "Proyectos residenciales"},
+            {"id": "segment_2", "title": "Comercial e Industrial (C&I)", "description": "Proyectos comerciales e industriales"},
+            {"id": "segment_3", "title": "Utility Scale", "description": "Proyectos a escala de servicios públicos"},
+            {"id": "segment_4", "title": "Misceláneo", "description": "Otros tipos de proyectos"},
+            {"id": "segment_6", "title": "Almacenamiento (UT)", "description": "Almacenamiento - Utility Scale"},
+            {"id": "segment_7", "title": "Almacenamiento (C&I)", "description": "Almacenamiento - Comercial e Industrial"}
         ]
     }
     
     sections = [segments_section]
     
-    # Preparar el payload del mensaje directamente, sin usar la función auxiliar
-    message_data = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": wa_id,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "header": {
-                "type": "text",
-                "text": header_text
-            },
-            "body": {
-                "text": body_text
-            },
-            "footer": {
-                "text": "Operadores Nacionales - Soporte"
-            },
-            "action": {
-                "button": button_text,
-                "sections": sections
-            }
-        }
-    }
-    
-    # Convertir el mensaje a JSON
-    message_json = json.dumps(message_data)
-    logging.info(f"Mensaje para lista de segmentos: {message_json[:200]}...")
+    # Generar el mensaje
+    message_data = get_interactive_list_message(
+        recipient=wa_id,
+        header_text=header_text,
+        body_text=body_text,
+        button_text=button_text,
+        sections=sections
+    )
     
     # Enviar el mensaje
     headers = {
@@ -308,50 +287,62 @@ def send_market_segment_list(wa_id):
     url = f"https://graph.facebook.com/{whatsapp_config['version']}/{whatsapp_config['phone_number_id']}/messages"
     
     try:
-        logging.info(f"Enviando solicitud de lista de segmentos a: {url}")
         response = requests.post(
-            url, data=message_json, headers=headers, timeout=10
+            url, data=message_data, headers=headers, timeout=10
         )
-        
-        # Loguear respuesta detallada para diagnóstico
-        logging.info(f"Respuesta de WhatsApp API - Status: {response.status_code}")
-        logging.info(f"Respuesta de WhatsApp API - Headers: {dict(response.headers)}")
-        logging.info(f"Respuesta de WhatsApp API - Body: {response.text[:200]}...")
-        
-        # Verificar si hubo error
-        if response.status_code >= 400:
-            logging.error(f"Error al enviar lista de segmentos. Status: {response.status_code}, Respuesta: {response.text}")
-            # Fallback a mensaje de texto
-            send_segment_text_options(wa_id)
-            return None
-            
         response.raise_for_status()
-        logging.info(f"Lista de segmentos enviada exitosamente a {wa_id}")
+        logging.info(f"Lista de segmentos de mercado enviada a {wa_id}")
         return response
     except Exception as e:
         logging.error(f"Error al enviar lista de segmentos: {str(e)}")
-        # Fallback a mensaje de texto
-        send_segment_text_options(wa_id)
+        # Intentar enviar un mensaje de texto normal como respaldo
+        fallback_message = "Por favor, indica el segmento de mercado del proyecto (Residencial, Comercial e Industrial, Utility Scale, Misceláneo, Almacenamiento UT, Almacenamiento C&I):"
+        send_whatsapp_message(wa_id, fallback_message)
         return None
 
-def send_segment_text_options(wa_id):
+def get_segment_id_from_selection(selection_id):
     """
-    Envía un mensaje de texto con las opciones de segmentos cuando la lista interactiva falla.
+    Obtiene el ID del segmento de mercado a partir del ID de selección.
     
     Args:
-        wa_id (str): ID de WhatsApp del usuario
+        selection_id (str): ID de la selección (ej: "segment_1")
+        
+    Returns:
+        int or None: ID del segmento o None si no se encuentra
     """
-    text_message = (
-        "Por favor, indica el segmento de mercado del proyecto seleccionando una de estas opciones:\n\n"
-        "1) Residencial\n"
-        "2) Comercial e Industrial (C&I)\n"
-        "3) Utility Scale\n"
-        "4) Misceláneo\n"
-        "5) Almacenamiento (UT)\n"
-        "6) Almacenamiento (C&I)"
-    )
+    # Mapa de IDs de selección a IDs de segmentos
+    segment_map = {
+        "segment_1": 1,   # Residencial
+        "segment_2": 2,   # Comercial e Industrial (C&I)
+        "segment_3": 3,   # Utility Scale
+        "segment_4": 4,   # Misceláneo
+        "segment_6": 6,   # Almacenamiento (UT)
+        "segment_7": 7    # Almacenamiento (C&I)
+    }
     
-    send_whatsapp_message(wa_id, text_message)
+    return segment_map.get(selection_id)
+
+def get_segment_name_from_id(segment_id):
+    """
+    Obtiene el nombre del segmento de mercado a partir del ID.
+    
+    Args:
+        segment_id (int): ID del segmento
+        
+    Returns:
+        str or None: Nombre del segmento o None si no se encuentra
+    """
+    # Mapa de IDs de segmentos a nombres
+    segment_map = {
+        1: "Residencial",
+        2: "Comercial e Industrial (C&I)",
+        3: "Utility Scale",
+        4: "Misceláneo",
+        6: "Almacenamiento (UT)",
+        7: "Almacenamiento (C&I)"
+    }
+    
+    return segment_map.get(segment_id)
 
 def is_valid_message(body):
     """

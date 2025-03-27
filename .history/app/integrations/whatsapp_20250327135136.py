@@ -782,26 +782,33 @@ def handle_ticket_creation(wa_id, name, message_body, session):
             response = "El formato del correo electrónico no parece válido. Por favor, ingresa un correo electrónico válido (ejemplo: nombre@dominio.com)."
     
     # Paso 4: Solicitar número de serie (opcional)
-    elif context['ticket_step'] == 'serial_no':
-        if message_body.lower() in ['no', 'n', 'paso', 'skip', 'omitir', 'na', 'n/a']:
-            context['ticket_serial_no'] = ""
-            logging.info(f"Usuario {name} optó por omitir número de serie")
-        else:
-            context['ticket_serial_no'] = message_body
-            logging.info(f"Número de serie proporcionado por {name}: {message_body}")
+elif context['ticket_step'] == 'serial_no':
+    if message_body.lower() in ['no', 'n', 'paso', 'skip', 'omitir', 'na', 'n/a']:
+        context['ticket_serial_no'] = ""
+        logging.info(f"Usuario {name} optó por omitir número de serie")
+    else:
+        context['ticket_serial_no'] = message_body
+        logging.info(f"Número de serie proporcionado por {name}: {message_body}")
+    
+    # Avanzar al paso de segmento
+    context['ticket_step'] = 'segment'
+    
+    # Enviar lista de selección de segmentos
+    try:
+        # Usar la función optimizada
+        result = send_market_segment_list(wa_id)
+        logging.info(f"Resultado del envío de lista de segmentos: {result is not None}")
         
-        # Avanzar al paso de segmento
-        context['ticket_step'] = 'segment'
-        
-        # Enviar lista de selección de segmentos
-        try:
-            send_market_segment_list(wa_id)
-            logging.info(f"Lista de segmentos enviada a {name}")
+        if result is not None:
             response = "Gracias. Por favor, selecciona el segmento de mercado del proyecto de la lista que aparece a continuación."
-        except Exception as e:
-            logging.error(f"Error al enviar lista de segmentos: {str(e)}")
-            # Fallback a mensaje de texto
-            response = "Por favor, indica el segmento de mercado del proyecto (Residencial, Comercial e Industrial, Utility Scale, Misceláneo, Almacenamiento UT, Almacenamiento C&I):"
+        else:
+            # Si falló el envío, la función de fallback ya mostró las opciones como texto
+            response = "Gracias. Por favor, selecciona el segmento de mercado del proyecto según las opciones mostradas."
+    except Exception as e:
+        logging.error(f"Error al enviar opciones de segmento: {str(e)}")
+        # Fallback a opciones como texto
+        send_segment_text_options(wa_id)
+        response = "Gracias. Por favor, selecciona el segmento de mercado del proyecto según las opciones mostradas."
     
     # Paso 5: Procesamiento de texto para segmento (si no se usó la lista interactiva)
     elif context['ticket_step'] == 'segment' and session.get('last_message_type') != 'interactive_list':

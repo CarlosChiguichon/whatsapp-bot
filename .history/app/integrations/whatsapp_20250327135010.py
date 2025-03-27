@@ -259,7 +259,7 @@ def send_market_segment_list(wa_id):
     segments_section = {
         "title": "Segmentos disponibles",
         "rows": [
-            {"id": "segment_1", "title": "Residencial", "description": "DG"},
+            {"id": "segment_1", "title": "Residencial", "description": "Residencial"},
             {"id": "segment_2", "title": "Comercial e Industrial", "description": "C&I"},
             {"id": "segment_3", "title": "Utility Scale", "description": "Utility Scale"},
             {"id": "segment_4", "title": "Misceláneo", "description": "Misceláneo"},
