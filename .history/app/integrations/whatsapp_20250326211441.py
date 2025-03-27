@@ -283,13 +283,7 @@ def process_message(message_data):
             
         else:
             # Procesar con IA para otros mensajes
-            try:
-                # Importar aquí para evitar dependencia circular
-                from app.integrations.openai import generate_ai_response
-                response = generate_ai_response(message_body, wa_id, name)
-            except Exception as e:
-                logging.error(f"Error al procesar respuesta de IA: {str(e)}")
-                response = "Lo siento, estoy experimentando dificultades técnicas en este momento. ¿Hay algo más en lo que pueda ayudarte?"
+            response = generate_ai_response(message_body, wa_id, name)
             
     else:
         # Respuesta para tipos de mensajes no soportados
