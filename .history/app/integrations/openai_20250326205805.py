@@ -6,7 +6,7 @@ import time
 import json
 import os
 import shelve
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -15,7 +15,7 @@ load_dotenv()
 # Configurar cliente de OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
-openai.api_key = OPENAI_API_KEY
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def check_if_thread_exists(wa_id):
     """
@@ -28,9 +28,6 @@ def check_if_thread_exists(wa_id):
         str or None: ID del hilo si existe, None en caso contrario
     """
     try:
-        # Crear directorio data si no existe
-        os.makedirs("data", exist_ok=True)
-        
         with shelve.open("data/threads_db") as threads_shelf:
             return threads_shelf.get(wa_id, None)
     except Exception as e:
@@ -46,9 +43,6 @@ def store_thread(wa_id, thread_id):
         thread_id (str): ID del hilo de conversación
     """
     try:
-        # Crear directorio data si no existe
-        os.makedirs("data", exist_ok=True)
-        
         with shelve.open("data/threads_db", writeback=True) as threads_shelf:
             threads_shelf[wa_id] = thread_id
             logging.info(f"Hilo {thread_id} almacenado para usuario {wa_id}")
@@ -83,14 +77,14 @@ def detect_intent(message, context=None):
         Responde solo con el nombre de la intención.
         """
         
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=prompt,
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
             max_tokens=20,
             temperature=0.2
         )
         
-        intent = response.choices[0].text.strip().lower()
+        intent = response.choices[0].message.content.strip().lower()
         logging.info(f"Intención detectada: {intent}")
         return intent
         
@@ -113,11 +107,11 @@ def wait_for_run_completion(thread_id, run_id):
         # Intentar hasta 30 segundos (60 intentos x 0.5 segundos)
         for _ in range(60):
             time.sleep(0.5)
-            run = openai.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
+            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
             
             if run.status == "completed":
                 # Obtener mensajes y devolver el más reciente
-                messages = openai.beta.threads.messages.list(thread_id=thread_id)
+                messages = client.beta.threads.messages.list(thread_id=thread_id)
                 if messages.data:
                     return messages.data[0].content[0].text.value
             
@@ -180,7 +174,7 @@ def handle_function_call(thread_id, run_id, function_call, wa_id, name):
             )
             
             # Enviar el resultado al asistente
-            openai.beta.threads.runs.submit_tool_outputs(
+            client.beta.threads.runs.submit_tool_outputs(
                 thread_id=thread_id,
                 run_id=run_id,
                 tool_outputs=[
@@ -209,7 +203,7 @@ def handle_function_call(thread_id, run_id, function_call, wa_id, name):
                 "error": f"Error al procesar la solicitud: {str(e)}"
             }
             
-            openai.beta.threads.runs.submit_tool_outputs(
+            client.beta.threads.runs.submit_tool_outputs(
                 thread_id=thread_id,
                 run_id=run_id,
                 tool_outputs=[
@@ -246,10 +240,10 @@ def run_assistant(thread, name, wa_id):
             return "Lo siento, el servicio de asistente no está configurado correctamente."
         
         # Obtener el asistente
-        assistant = openai.beta.assistants.retrieve(OPENAI_ASSISTANT_ID)
+        assistant = client.beta.assistants.retrieve(OPENAI_ASSISTANT_ID)
         
         # Ejecutar el asistente con instrucciones personalizadas
-        run = openai.beta.threads.runs.create(
+        run = client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=assistant.id,
             instructions=f"Estás conversando con {name} a través de WhatsApp. Sé conciso en tus respuestas."
@@ -258,7 +252,7 @@ def run_assistant(thread, name, wa_id):
         # Esperar hasta que se complete la ejecución o requiera acciones
         for _ in range(60):  # 30 segundos máximo
             time.sleep(0.5)
-            run = openai.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+            run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
             
             # Si la ejecución requiere acciones (llamadas a funciones)
             if run.status == "requires_action":
@@ -283,7 +277,7 @@ def run_assistant(thread, name, wa_id):
                 
         # Si se completa normalmente, obtener el mensaje más reciente
         if run.status == "completed":
-            messages = openai.beta.threads.messages.list(thread_id=thread.id)
+            messages = client.beta.threads.messages.list(thread_id=thread.id)
             if messages.data:
                 new_message = messages.data[0].content[0].text.value
                 logging.info(f"Mensaje generado: {new_message[:100]}...")
@@ -316,6 +310,7 @@ def generate_ai_response(message_body, wa_id, name):
             return "Lo siento, el servicio de IA no está configurado correctamente."
             
         # Asegurar que exista el directorio para datos
+        import os
         os.makedirs("data", exist_ok=True)
         
         # Verificar si existe un hilo para este usuario
@@ -324,16 +319,16 @@ def generate_ai_response(message_body, wa_id, name):
         # Si no existe, crear uno nuevo
         if thread_id is None:
             logging.info(f"Creando nuevo hilo para {name} con wa_id {wa_id}")
-            thread = openai.beta.threads.create()
+            thread = client.beta.threads.create()
             store_thread(wa_id, thread.id)
             thread_id = thread.id
         else:
             # Recuperar el hilo existente
             logging.info(f"Recuperando hilo existente para {name} con wa_id {wa_id}")
-            thread = openai.beta.threads.retrieve(thread_id)
+            thread = client.beta.threads.retrieve(thread_id)
         
         # Añadir mensaje al hilo
-        openai.beta.threads.messages.create(
+        client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=message_body,
