@@ -210,7 +210,7 @@ def get_country_id_from_selection(selection_id):
         "country_172": 172, # Panamá
         "country_111": 111, # Jamaica
         "country_18": 18,   # Barbados
-        "country_other": 171  # Otro país
+        "country_other": "other"  # Otro país
     }
     
     return country_map.get(selection_id)
