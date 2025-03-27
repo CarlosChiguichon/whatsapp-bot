@@ -198,7 +198,7 @@ def get_country_id_from_selection(selection_id):
         selection_id (str): ID de la selección (ej: "country_90")
         
     Returns:
-        int or None: ID del país o None si no se encuentra
+        int, str or None: ID del país, "other" para otro país, o None si no se encuentra
     """
     # Mapa de IDs de selección a IDs de países
     country_map = {
@@ -210,7 +210,7 @@ def get_country_id_from_selection(selection_id):
         "country_172": 172, # Panamá
         "country_111": 111, # Jamaica
         "country_18": 18,   # Barbados
-        "country_other": 171  # Otro (ahora usa ID 171 en lugar de la cadena "other")
+        "country_other": "other"  # Otro país
     }
     
     return country_map.get(selection_id)
@@ -234,8 +234,7 @@ def get_country_name_from_id(country_id):
         50: "Costa Rica",
         172: "Panamá",
         111: "Jamaica",
-        18: "Barbados",
-        171: "Otro"  # Añadido para tener nombre para el ID 171
+        18: "Barbados"
     }
     
     return country_map.get(country_id)
@@ -503,11 +502,11 @@ def handle_ticket_creation(wa_id, name, message_body, session):
         selection_id = session.get('last_selection_id', '')
         country_id = get_country_id_from_selection(selection_id)
         
-        if country_id == 171:  # Si es "Otro" (ahora usando ID 171)
+        if country_id == "other":
             # El usuario seleccionó "Otro"
-            context['ticket_country_id'] = 171  # ID numérico para "Otro"
+            context['ticket_country_id'] = 0  # Un valor que indica "otro"
             context['ticket_country_name'] = "Otro"
-            logging.info("Usuario seleccionó 'Otro' como país (ID: 171)")
+            logging.info("Usuario seleccionó 'Otro' como país")
             
             # Avanzar al paso de descripción
             context['ticket_step'] = 'description'
@@ -578,10 +577,10 @@ def handle_ticket_creation(wa_id, name, message_body, session):
         
         # Verificar si el usuario escribió "otro" o similar
         if country_name.lower() in ["otro", "other", "otra", "others", "diferente"]:
-            context['ticket_country_id'] = 171  # Actualizado a ID 171 para "Otro"
+            context['ticket_country_id'] = 0
             context['ticket_country_name'] = "Otro"
             context['ticket_step'] = 'description'
-            logging.info("Usuario escribió 'Otro' como país (asignado ID 171)")
+            logging.info("Usuario escribió 'Otro' como país")
             response = "Entendido. Por favor, describe el problema en detalle incluyendo el país donde se encuentra el proyecto."
             session_manager.update_session(wa_id, context=context)
             return response
@@ -660,10 +659,9 @@ def handle_ticket_creation(wa_id, name, message_body, session):
                 "description": context['ticket_description'],
             }
             
-            # Añadir ID de país si está disponible
-            if 'ticket_country_id' in context:
+            # Añadir ID de país si está disponible y no es "otro"
+            if 'ticket_country_id' in context and context['ticket_country_id'] != 0:
                 ticket_data["country_id"] = context['ticket_country_id']
-                logging.info(f"Añadiendo country_id: {context['ticket_country_id']} al ticket")
             
             # Crear el ticket
             ticket_result = create_ticket(**ticket_data)
@@ -812,61 +810,61 @@ def process_message(message_data):
                 response = "Lo siento, estoy experimentando dificultades técnicas en este momento. ¿Hay algo más en lo que pueda ayudarte?"
     
     # Manejar respuestas de listas interactivas (selección de país)
-    elif message_type == "interactive_list":
-        selection_id = message_data.get('selection_id', '')
-        selection_text = message_data.get('body', 'Selección')
+elif message_type == "interactive_list":
+    selection_id = message_data.get('selection_id', '')
+    selection_text = message_data.get('body', 'Selección')
+    
+    # Agregar mensaje al historial
+    session_manager.add_message_to_history(wa_id, 'user', f"[Seleccionó: {selection_text}]")
+    
+    # Loggear información detallada de la sesión para diagnóstico
+    logging.info(f"Usuario {name} seleccionó: {selection_text} (ID: {selection_id})")
+    logging.info(f"Estado de sesión: {session['state']}")
+    logging.info(f"Contexto de sesión: {session.get('context', {})}")
+    
+    # Actualizar sesión explícitamente antes de procesar la selección
+    session_manager.update_session(
+        wa_id, 
+        last_message_type="interactive_list",
+        last_selection_id=selection_id
+    )
+    
+    # Obtener la sesión actualizada
+    session = session_manager.get_session(wa_id)
+    
+    # Verificar si estamos en proceso de creación de ticket
+    ticket_creation = session['state'] == 'TICKET_CREATION'
+    country_step = session.get('context', {}).get('ticket_step') == 'country'
+    
+    logging.info(f"¿Estamos en creación de ticket? {ticket_creation}")
+    logging.info(f"¿Estamos en paso de país? {country_step}")
+    
+    # Si estamos en proceso de creación de ticket y en el paso de país
+    if ticket_creation and country_step:
+        # Procesar la selección
+        response = handle_ticket_creation(wa_id, name, selection_text, session)
+    else:
+        # Si no estamos en el flujo esperado, proporcionar una respuesta general
+        logging.warning(f"Recibida selección interactiva fuera del flujo esperado: {selection_text}. Estado: {session['state']}, Paso: {session.get('context', {}).get('ticket_step')}")
         
-        # Agregar mensaje al historial
-        session_manager.add_message_to_history(wa_id, 'user', f"[Seleccionó: {selection_text}]")
-        
-        # Loggear información detallada de la sesión para diagnóstico
-        logging.info(f"Usuario {name} seleccionó: {selection_text} (ID: {selection_id})")
-        logging.info(f"Estado de sesión: {session['state']}")
-        logging.info(f"Contexto de sesión: {session.get('context', {})}")
-        
-        # Actualizar sesión explícitamente antes de procesar la selección
-        session_manager.update_session(
-            wa_id, 
-            last_message_type="interactive_list",
-            last_selection_id=selection_id
-        )
-        
-        # Obtener la sesión actualizada
-        session = session_manager.get_session(wa_id)
-        
-        # Verificar si estamos en proceso de creación de ticket
-        ticket_creation = session['state'] == 'TICKET_CREATION'
-        country_step = session.get('context', {}).get('ticket_step') == 'country'
-        
-        logging.info(f"¿Estamos en creación de ticket? {ticket_creation}")
-        logging.info(f"¿Estamos en paso de país? {country_step}")
-        
-        # Si estamos en proceso de creación de ticket y en el paso de país
-        if ticket_creation and country_step:
-            # Procesar la selección
-            response = handle_ticket_creation(wa_id, name, selection_text, session)
-        else:
-            # Si no estamos en el flujo esperado, proporcionar una respuesta general
-            logging.warning(f"Recibida selección interactiva fuera del flujo esperado: {selection_text}. Estado: {session['state']}, Paso: {session.get('context', {}).get('ticket_step')}")
+        # Verificar si la selección es un país y forzar el inicio del proceso de ticket
+        if selection_id.startswith('country_'):
+            logging.info(f"Forzando inicio de proceso de ticket con selección de país: {selection_text}")
             
-            # Verificar si la selección es un país y forzar el inicio del proceso de ticket
-            if selection_id.startswith('country_'):
-                logging.info(f"Forzando inicio de proceso de ticket con selección de país: {selection_text}")
-                
-                # Establecer estado de creación de ticket
-                session_manager.update_session(
-                    wa_id,
-                    state='TICKET_CREATION',
-                    context={'ticket_step': 'country'},
-                    last_message_type="interactive_list",
-                    last_selection_id=selection_id
-                )
-                
-                # Obtener sesión actualizada y procesar
-                updated_session = session_manager.get_session(wa_id)
-                response = handle_ticket_creation(wa_id, name, selection_text, updated_session)
-            else:
-                response = f"Has seleccionado: {selection_text}. ¿En qué puedo ayudarte?"
+            # Establecer estado de creación de ticket
+            session_manager.update_session(
+                wa_id,
+                state='TICKET_CREATION',
+                context={'ticket_step': 'country'},
+                last_message_type="interactive_list",
+                last_selection_id=selection_id
+            )
+            
+            # Obtener sesión actualizada y procesar
+            updated_session = session_manager.get_session(wa_id)
+            response = handle_ticket_creation(wa_id, name, selection_text, updated_session)
+        else:
+            response = f"Has seleccionado: {selection_text}. ¿En qué puedo ayudarte?"
             
     else:
         # Respuesta para tipos de mensajes no soportados
