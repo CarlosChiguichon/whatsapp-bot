@@ -8,6 +8,8 @@ import requests
 from flask import current_app
 
 from app.core.session import session_manager
+from app.integrations.openai import generate_ai_response
+from app.integrations.odoo import create_ticket
 from app.utils.helpers import process_text_for_whatsapp, log_conversation
 
 # Configuración global para uso en hilos secundarios
@@ -86,156 +88,6 @@ def send_whatsapp_message(recipient, text):
     except Exception as e:
         logging.error(f"Error inesperado al enviar mensaje: {str(e)}")
         return None
-
-def get_interactive_list_message(recipient, header_text, body_text, button_text, sections):
-    """
-    Genera un mensaje interactivo con lista para WhatsApp.
-    
-    Args:
-        recipient (str): ID de WhatsApp del destinatario
-        header_text (str): Texto del encabezado
-        body_text (str): Texto principal del mensaje
-        button_text (str): Texto del botón para mostrar opciones
-        sections (list): Lista de secciones con opciones
-        
-    Returns:
-        str: JSON formateado para enviar como mensaje interactivo
-    """
-    message_data = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": recipient,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "header": {
-                "type": "text",
-                "text": header_text
-            },
-            "body": {
-                "text": body_text
-            },
-            "footer": {
-                "text": "Operadores Nacionales - Soporte"
-            },
-            "action": {
-                "button": button_text,
-                "sections": sections
-            }
-        }
-    }
-    
-    return json.dumps(message_data)
-
-def send_country_selection_list(wa_id):
-    """
-    Envía una lista de selección de países al usuario.
-    
-    Args:
-        wa_id (str): ID de WhatsApp del usuario
-        
-    Returns:
-        response: Respuesta de la API de WhatsApp
-    """
-    header_text = "Selección de país"
-    body_text = "Por favor selecciona el país donde se encuentra el proyecto:"
-    button_text = "Ver países"
-    
-    # Definir las opciones de países
-    countries_section = {
-        "title": "Países disponibles",
-        "rows": [
-            {"id": "country_90", "title": "Guatemala", "description": "República de Guatemala"},
-            {"id": "country_209", "title": "El Salvador", "description": "República de El Salvador"},
-            {"id": "country_96", "title": "Honduras", "description": "República de Honduras"},
-            {"id": "country_164", "title": "Nicaragua", "description": "República de Nicaragua"},
-            {"id": "country_50", "title": "Costa Rica", "description": "República de Costa Rica"},
-            {"id": "country_172", "title": "Panamá", "description": "República de Panamá"},
-            {"id": "country_111", "title": "Jamaica", "description": "Jamaica"},
-            {"id": "country_18", "title": "Barbados", "description": "Barbados"}
-        ]
-    }
-    
-    sections = [countries_section]
-    
-    # Generar el mensaje
-    message_data = get_interactive_list_message(
-        recipient=wa_id,
-        header_text=header_text,
-        body_text=body_text,
-        button_text=button_text,
-        sections=sections
-    )
-    
-    # Enviar el mensaje
-    headers = {
-        "Content-type": "application/json",
-        "Authorization": f"Bearer {whatsapp_config['access_token']}",
-    }
-    
-    url = f"https://graph.facebook.com/{whatsapp_config['version']}/{whatsapp_config['phone_number_id']}/messages"
-    
-    try:
-        response = requests.post(
-            url, data=message_data, headers=headers, timeout=10
-        )
-        response.raise_for_status()
-        logging.info(f"Lista de países enviada a {wa_id}")
-        return response
-    except Exception as e:
-        logging.error(f"Error al enviar lista de países: {str(e)}")
-        # Intentar enviar un mensaje de texto normal como respaldo
-        fallback_message = "Por favor, indica el país del proyecto (Guatemala, El Salvador, Honduras, Nicaragua, Costa Rica, Panamá, Jamaica o Barbados):"
-        send_whatsapp_message(wa_id, fallback_message)
-        return None
-
-def get_country_id_from_selection(selection_id):
-    """
-    Obtiene el ID del país a partir del ID de selección.
-    
-    Args:
-        selection_id (str): ID de la selección (ej: "country_90")
-        
-    Returns:
-        int or None: ID del país o None si no se encuentra
-    """
-    # Mapa de IDs de selección a IDs de países
-    country_map = {
-        "country_90": 90,   # Guatemala
-        "country_209": 209, # El Salvador
-        "country_96": 96,   # Honduras
-        "country_164": 164, # Nicaragua
-        "country_50": 50,   # Costa Rica
-        "country_172": 172, # Panamá
-        "country_111": 111, # Jamaica
-        "country_18": 18    # Barbados
-    }
-    
-    return country_map.get(selection_id)
-
-def get_country_name_from_id(country_id):
-    """
-    Obtiene el nombre del país a partir del ID.
-    
-    Args:
-        country_id (int): ID del país
-        
-    Returns:
-        str or None: Nombre del país o None si no se encuentra
-    """
-    # Mapa de IDs de países a nombres
-    country_map = {
-        90: "Guatemala",
-        209: "El Salvador",
-        96: "Honduras",
-        164: "Nicaragua",
-        50: "Costa Rica",
-        172: "Panamá",
-        111: "Jamaica",
-        18: "Barbados"
-    }
-    
-    return country_map.get(country_id)
 
 def is_valid_message(body):
     """
@@ -366,7 +218,7 @@ def extract_message_data(body):
 
 def detect_ticket_intent(message):
     """
-    Detecta si el mensaje indica intención de crear un ticket de soporte.
+    Detecta si el mensaje indica la intención de crear un ticket de soporte.
     
     Args:
         message (str): Texto del mensaje
@@ -380,8 +232,7 @@ def detect_ticket_intent(message):
     ticket_keywords = [
         "problema", "error", "falla", "ticket", "ayuda", "soporte", "no funciona",
         "issue", "bug", "help", "support", "not working", "broken", "doesn't work",
-        "reportar", "reporte", "report", "queja", "complaint", "asistencia técnica",
-        "mal funcionamiento", "avería", "servicio técnico", "reparación"
+        "reportar", "reporte", "report", "queja", "complaint"
     ]
     
     message_lower = message.lower()
@@ -391,66 +242,6 @@ def detect_ticket_intent(message):
             return True
             
     return False
-
-def generate_ticket_subject(description):
-    """
-    Genera un asunto de ticket a partir de la descripción proporcionada.
-    Utiliza OpenAI para crear un resumen conciso (máximo 10 palabras).
-    
-    Args:
-        description (str): Descripción detallada del problema
-        
-    Returns:
-        str: Asunto generado para el ticket
-    """
-    try:
-        # Intentar usar OpenAI para generar un resumen
-        import openai
-        
-        # Crear un prompt para generar el asunto
-        prompt = f"""
-        Genera un asunto conciso (máximo 10 palabras) que resuma el siguiente problema:
-        
-        "{description}"
-        
-        Solo responde con el asunto, sin comillas ni puntos al final.
-        """
-        
-        # Hacer la solicitud a OpenAI
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=30,
-            temperature=0.3
-        )
-        
-        # Extraer y limpiar el resumen
-        subject = response.choices[0].message['content'].strip()
-        
-        # Eliminar comillas y puntos finales
-        subject = subject.replace('"', '').replace("'", "")
-        subject = subject.rstrip('.')
-        
-        # Asegurar que no sea demasiado largo
-        words = subject.split()
-        if len(words) > 10:
-            subject = ' '.join(words[:10])
-        
-        logging.info(f"Asunto generado: {subject}")
-        return subject
-        
-    except Exception as e:
-        logging.error(f"Error al generar asunto: {str(e)}")
-        
-        # Generar un asunto genérico basado en las primeras palabras de la descripción
-        words = description.split()
-        if len(words) <= 10:
-            fallback_subject = description
-        else:
-            fallback_subject = ' '.join(words[:10]) + '...'
-            
-        logging.info(f"Asunto fallback generado: {fallback_subject}")
-        return fallback_subject
 
 def close_session_with_message(wa_id, name):
     """
@@ -475,6 +266,99 @@ def close_session_with_message(wa_id, name):
     # Cerrar la sesión
     session_manager.end_session(wa_id)
     logging.info(f"Sesión cerrada voluntariamente para {name} ({wa_id})")
+
+def process_message(message_data):
+    """
+    Procesa un mensaje de WhatsApp y genera una respuesta.
+    
+    Args:
+        message_data (dict): Datos del mensaje extraídos
+    """
+    # Extraer datos
+    wa_id = message_data["wa_id"]
+    name = message_data["name"]
+    message_type = message_data["type"]
+    
+    # Obtener o crear sesión
+    session = session_manager.get_session(wa_id)
+    
+    # Manejar diferentes tipos de mensajes
+    if message_type == "text":
+        message_body = message_data["body"]
+        
+        # Agregar mensaje al historial
+        session_manager.add_message_to_history(wa_id, 'user', message_body)
+        
+        # Verificar si el usuario quiere finalizar la conversación
+        if message_body.lower() in ['finalizar', 'terminar', 'cerrar', 'adios', 'chao', 'bye', 'end', 'fin', 'salir', 'exit']:
+            close_session_with_message(wa_id, name)
+            return
+            
+        # Procesar según el estado de la sesión
+        if session['state'] == 'INITIAL' and message_body.lower() in ['hola', 'hi', 'hello']:
+            # Mensaje de bienvenida
+            response = f"¡Hola {name}! Bienvenido. ¿En qué puedo ayudarte hoy?"
+            session_manager.update_session(wa_id, state='AWAITING_QUERY')
+            
+        elif session['state'] == 'AWAITING_RESPONSE_POST_TICKET':
+            # Estado después de crear ticket
+            if message_body.lower() in ['no', 'nop', 'nope', 'negativo', 'n']:
+                close_session_with_message(wa_id, name)
+                return
+            else:
+                response = "¿En qué más puedo ayudarte?"
+                session_manager.update_session(wa_id, state='AWAITING_QUERY')
+                
+        elif session['state'] == 'TICKET_CREATION':
+            # Proceso de creación de ticket
+            response = handle_ticket_creation(wa_id, name, message_body, session)
+            
+        # Detectar intención de crear ticket
+        elif detect_ticket_intent(message_body) and session['state'] != 'TICKET_CREATION':
+            response = "Parece que necesitas ayuda con un problema. Me gustaría crear un ticket de soporte para que nuestro equipo pueda asistirte. Por favor, proporciona un breve título que describa el problema:"
+            session_manager.update_session(
+                wa_id, 
+                state='TICKET_CREATION', 
+                context={'ticket_step': 'subject'}
+            )
+            
+        else:
+            # Procesar con IA para otros mensajes
+            try:
+                # Importar aquí para evitar dependencia circular
+                from app.integrations.openai import generate_ai_response
+                response = generate_ai_response(message_body, wa_id, name)
+            except Exception as e:
+                logging.error(f"Error al procesar respuesta de IA: {str(e)}")
+                response = "Lo siento, estoy experimentando dificultades técnicas en este momento. ¿Hay algo más en lo que pueda ayudarte?"
+            
+    else:
+        # Respuesta para tipos de mensajes no soportados
+        type_names = {
+            "image": "imagen",
+            "audio": "mensaje de voz",
+            "document": "documento",
+            "video": "video",
+            "location": "ubicación"
+        }
+        type_name = type_names.get(message_type, message_type)
+        
+        # Agregar mensaje al historial
+        session_manager.add_message_to_history(wa_id, 'user', f"[{type_name.upper()}]")
+        
+        response = f"He recibido tu {type_name}, pero actualmente no puedo procesar este tipo de contenido. ¿Podrías describir tu consulta en un mensaje de texto?"
+    
+    # Formatear respuesta para WhatsApp
+    response = process_text_for_whatsapp(response)
+    
+    # Enviar respuesta
+    send_whatsapp_message(wa_id, response)
+    
+    # Guardar respuesta en historial
+    session_manager.add_message_to_history(wa_id, 'assistant', response)
+    
+    # Guardar sesiones periódicamente
+    session_manager.save_sessions("data/sessions.json")
 
 def handle_ticket_creation(wa_id, name, message_body, session):
     """
@@ -631,118 +515,212 @@ def handle_ticket_creation(wa_id, name, message_body, session):
         
     return response
 
-def process_message(message_data):
+def get_interactive_list_message(recipient, header_text, body_text, button_text, sections):
     """
-    Procesa un mensaje de WhatsApp y genera una respuesta.
+    Genera un mensaje interactivo con lista para WhatsApp.
     
     Args:
-        message_data (dict): Datos del mensaje extraídos
+        recipient (str): ID de WhatsApp del destinatario
+        header_text (str): Texto del encabezado
+        body_text (str): Texto principal del mensaje
+        button_text (str): Texto del botón para mostrar opciones
+        sections (list): Lista de secciones con opciones
+        
+    Returns:
+        str: JSON formateado para enviar como mensaje interactivo
     """
-    # Extraer datos
-    wa_id = message_data["wa_id"]
-    name = message_data["name"]
-    message_type = message_data["type"]
-    
-    # Obtener o crear sesión
-    session = session_manager.get_session(wa_id)
-    
-    # Guardar tipo de mensaje para referencia futura (útil para las respuestas interactivas)
-    if message_type.startswith('interactive_'):
-        session_manager.update_session(
-            wa_id, 
-            last_message_type=message_type,
-            last_selection_id=message_data.get('selection_id', '')
-        )
-    
-    # Manejar diferentes tipos de mensajes
-    if message_type == "text":
-        message_body = message_data["body"]
-        
-        # Agregar mensaje al historial
-        session_manager.add_message_to_history(wa_id, 'user', message_body)
-        
-        # Verificar si el usuario quiere finalizar la conversación
-        if message_body.lower() in ['finalizar', 'terminar', 'cerrar', 'adios', 'chao', 'bye', 'end', 'fin', 'salir', 'exit']:
-            close_session_with_message(wa_id, name)
-            return
-            
-        # Procesar según el estado de la sesión
-        if session['state'] == 'INITIAL' and message_body.lower() in ['hola', 'hi', 'hello']:
-            # Mensaje de bienvenida
-            response = f"¡Hola {name}! Bienvenido a Operadores Nacionales. ¿En qué puedo ayudarte hoy?"
-            session_manager.update_session(wa_id, state='AWAITING_QUERY')
-            
-        elif session['state'] == 'AWAITING_RESPONSE_POST_TICKET':
-            # Estado después de crear ticket
-            if message_body.lower() in ['no', 'nop', 'nope', 'negativo', 'n']:
-                close_session_with_message(wa_id, name)
-                return
-            else:
-                response = "¿En qué más puedo ayudarte?"
-                session_manager.update_session(wa_id, state='AWAITING_QUERY')
-                
-        elif session['state'] == 'TICKET_CREATION':
-            # Proceso de creación de ticket
-            response = handle_ticket_creation(wa_id, name, message_body, session)
-            
-        # Detectar intención de crear ticket
-        elif detect_ticket_intent(message_body) and session['state'] != 'TICKET_CREATION':
-            response = "Parece que necesitas ayuda con un problema. Me gustaría crear un ticket de soporte para que nuestro equipo pueda asistirte. Por favor, describe el problema en detalle:"
-            session_manager.update_session(
-                wa_id, 
-                state='TICKET_CREATION', 
-                context={'ticket_step': 'description'}
-            )
-            
-        else:
-            # Procesar con IA para otros mensajes
-            try:
-                # Importar aquí para evitar dependencia circular
-                from app.integrations.openai import generate_ai_response
-                response = generate_ai_response(message_body, wa_id, name)
-            except Exception as e:
-                logging.error(f"Error al procesar respuesta de IA: {str(e)}")
-                response = "Lo siento, estoy experimentando dificultades técnicas en este momento. ¿Hay algo más en lo que pueda ayudarte?"
-    
-    # Manejar respuestas de listas interactivas (selección de país)
-    elif message_type == "interactive_list":
-        selection_id = message_data.get('selection_id', '')
-        selection_text = message_data.get('body', 'Selección')
-        
-        # Agregar mensaje al historial
-        session_manager.add_message_to_history(wa_id, 'user', f"[Seleccionó: {selection_text}]")
-        
-        # Si estamos en proceso de creación de ticket, manejar selección de país
-        if session['state'] == 'TICKET_CREATION' and session['context'].get('ticket_step') == 'country':
-            response = handle_ticket_creation(wa_id, name, selection_text, session)
-        else:
-            # Si no estamos en el flujo esperado, proporcionar una respuesta general
-            response = f"Has seleccionado: {selection_text}. ¿En qué puedo ayudarte?"
-            
-    else:
-        # Respuesta para tipos de mensajes no soportados
-        type_names = {
-            "image": "imagen",
-            "audio": "mensaje de voz",
-            "document": "documento",
-            "video": "video",
-            "location": "ubicación"
+    message_data = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": recipient,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {
+                "type": "text",
+                "text": header_text
+            },
+            "body": {
+                "text": body_text
+            },
+            "footer": {
+                "text": "Operadores Nacionales - Soporte"
+            },
+            "action": {
+                "button": button_text,
+                "sections": sections
+            }
         }
-        type_name = type_names.get(message_type, message_type)
+    }
+    
+    return json.dumps(message_data)
+
+def send_country_selection_list(wa_id):
+    """
+    Envía una lista de selección de países al usuario.
+    
+    Args:
+        wa_id (str): ID de WhatsApp del usuario
         
-        # Agregar mensaje al historial
-        session_manager.add_message_to_history(wa_id, 'user', f"[{type_name.upper()}]")
+    Returns:
+        response: Respuesta de la API de WhatsApp
+    """
+    header_text = "Selección de país"
+    body_text = "Por favor selecciona el país donde se encuentra el proyecto:"
+    button_text = "Ver países"
+    
+    # Definir las opciones de países
+    countries_section = {
+        "title": "Países disponibles",
+        "rows": [
+            {"id": "country_90", "title": "Guatemala", "description": "República de Guatemala"},
+            {"id": "country_209", "title": "El Salvador", "description": "República de El Salvador"},
+            {"id": "country_96", "title": "Honduras", "description": "República de Honduras"},
+            {"id": "country_164", "title": "Nicaragua", "description": "República de Nicaragua"},
+            {"id": "country_50", "title": "Costa Rica", "description": "República de Costa Rica"},
+            {"id": "country_172", "title": "Panamá", "description": "República de Panamá"},
+            {"id": "country_111", "title": "Jamaica", "description": "Jamaica"},
+            {"id": "country_18", "title": "Barbados", "description": "Barbados"}
+        ]
+    }
+    
+    sections = [countries_section]
+    
+    # Generar el mensaje
+    message_data = get_interactive_list_message(
+        recipient=wa_id,
+        header_text=header_text,
+        body_text=body_text,
+        button_text=button_text,
+        sections=sections
+    )
+    
+    # Enviar el mensaje
+    headers = {
+        "Content-type": "application/json",
+        "Authorization": f"Bearer {whatsapp_config['access_token']}",
+    }
+    
+    url = f"https://graph.facebook.com/{whatsapp_config['version']}/{whatsapp_config['phone_number_id']}/messages"
+    
+    try:
+        response = requests.post(
+            url, data=message_data, headers=headers, timeout=10
+        )
+        response.raise_for_status()
+        logging.info(f"Lista de países enviada a {wa_id}")
+        return response
+    except Exception as e:
+        logging.error(f"Error al enviar lista de países: {str(e)}")
+        # Intentar enviar un mensaje de texto normal como respaldo
+        fallback_message = "Por favor, indica el país del proyecto (Guatemala, El Salvador, Honduras, Nicaragua, Costa Rica, Panamá, Jamaica o Barbados):"
+        send_whatsapp_message(wa_id, fallback_message)
+        return None
+
+def get_country_id_from_selection(selection_id):
+    """
+    Obtiene el ID del país a partir del ID de selección.
+    
+    Args:
+        selection_id (str): ID de la selección (ej: "country_90")
         
-        response = f"He recibido tu {type_name}, pero actualmente no puedo procesar este tipo de contenido. ¿Podrías describir tu consulta en un mensaje de texto?"
+    Returns:
+        int or None: ID del país o None si no se encuentra
+    """
+    # Mapa de IDs de selección a IDs de países
+    country_map = {
+        "country_90": 90,   # Guatemala
+        "country_209": 209, # El Salvador
+        "country_96": 96,   # Honduras
+        "country_164": 164, # Nicaragua
+        "country_50": 50,   # Costa Rica
+        "country_172": 172, # Panamá
+        "country_111": 111, # Jamaica
+        "country_18": 18    # Barbados
+    }
     
-    # Formatear respuesta para WhatsApp
-    response = process_text_for_whatsapp(response)
+    return country_map.get(selection_id)
+
+def get_country_name_from_id(country_id):
+    """
+    Obtiene el nombre del país a partir del ID.
     
-    # Enviar respuesta
-    send_whatsapp_message(wa_id, response)
+    Args:
+        country_id (int): ID del país
+        
+    Returns:
+        str or None: Nombre del país o None si no se encuentra
+    """
+    # Mapa de IDs de países a nombres
+    country_map = {
+        90: "Guatemala",
+        209: "El Salvador",
+        96: "Honduras",
+        164: "Nicaragua",
+        50: "Costa Rica",
+        172: "Panamá",
+        111: "Jamaica",
+        18: "Barbados"
+    }
     
-    # Guardar respuesta en historial
-    session_manager.add_message_to_history(wa_id, 'assistant', response)
+    return country_map.get(country_id)
+
+def generate_ticket_subject(description):
+    """
+    Genera un asunto de ticket a partir de la descripción proporcionada.
+    Utiliza OpenAI para crear un resumen conciso (máximo 10 palabras).
     
-    # Guardar sesiones periódicamente
-    session_manager.save_sessions("data/sessions.json")
+    Args:
+        description (str): Descripción detallada del problema
+        
+    Returns:
+        str: Asunto generado para el ticket
+    """
+    try:
+        # Intentar usar OpenAI para generar un resumen
+        import openai
+        
+        # Crear un prompt para generar el asunto
+        prompt = f"""
+        Genera un asunto conciso (máximo 10 palabras) que resuma el siguiente problema:
+        
+        "{description}"
+        
+        Solo responde con el asunto, sin comillas ni puntos al final.
+        """
+        
+        # Hacer la solicitud a OpenAI
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=30,
+            temperature=0.3
+        )
+        
+        # Extraer y limpiar el resumen
+        subject = response.choices[0].message['content'].strip()
+        
+        # Eliminar comillas y puntos finales
+        subject = subject.replace('"', '').replace("'", "")
+        subject = subject.rstrip('.')
+        
+        # Asegurar que no sea demasiado largo
+        words = subject.split()
+        if len(words) > 10:
+            subject = ' '.join(words[:10])
+        
+        logging.info(f"Asunto generado: {subject}")
+        return subject
+        
+    except Exception as e:
+        logging.error(f"Error al generar asunto: {str(e)}")
+        
+        # Generar un asunto genérico basado en las primeras palabras de la descripción
+        words = description.split()
+        if len(words) <= 10:
+            fallback_subject = description
+        else:
+            fallback_subject = ' '.join(words[:10]) + '...'
+            
+        logging.info(f"Asunto fallback generado: {fallback_subject}")
+        return fallback_subject
