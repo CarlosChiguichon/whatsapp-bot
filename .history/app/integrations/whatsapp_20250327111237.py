@@ -476,8 +476,6 @@ def close_session_with_message(wa_id, name):
     session_manager.end_session(wa_id)
     logging.info(f"Sesión cerrada voluntariamente para {name} ({wa_id})")
 
-# Esta sección reemplaza la función handle_ticket_creation existente
-
 def handle_ticket_creation(wa_id, name, message_body, session):
     """
     Maneja el flujo de creación de un ticket de soporte.
@@ -492,18 +490,17 @@ def handle_ticket_creation(wa_id, name, message_body, session):
     Returns:
         str: Respuesta para el usuario
     """
-    context = session.get('context', {})
-    logging.info(f"Procesando ticket creation para {name}. Paso actual: {context.get('ticket_step', 'inicial')}")
-    logging.info(f"Tipo de mensaje: {session.get('last_message_type', 'desconocido')}, Selection ID: {session.get('last_selection_id', 'ninguno')}")
+    context = session['context']
     
     # Verificar si estamos procesando una respuesta interactiva (selección de país)
-    if session.get('last_message_type') == 'interactive_list' and context.get('ticket_step') == 'country':
-        logging.info("Procesando selección de país desde mensaje interactivo")
+    message_type = session.get('last_message_type', 'text')
+    if message_type == 'interactive_list' and context.get('ticket_step') == 'country':
+        # Procesar selección de país desde mensaje interactivo
         selection_id = session.get('last_selection_id', '')
         country_id = get_country_id_from_selection(selection_id)
+        country_name = get_country_name_from_id(country_id) if country_id else "No especificado"
         
         if country_id:
-            country_name = get_country_name_from_id(country_id)
             context['ticket_country_id'] = country_id
             context['ticket_country_name'] = country_name
             logging.info(f"País seleccionado: {country_name} (ID: {country_id})")
@@ -511,86 +508,37 @@ def handle_ticket_creation(wa_id, name, message_body, session):
             # Avanzar al siguiente paso
             context['ticket_step'] = 'email'
             response = "Gracias por seleccionar el país. ¿Podrías proporcionarme tu correo electrónico para que podamos dar seguimiento a tu caso? Si prefieres no compartirlo, puedes responder 'omitir'."
-            
-            # Actualizar contexto y retornar
-            session_manager.update_session(wa_id, context=context)
-            return response
         else:
+            # Si no se pudo determinar el país, preguntar de nuevo
             logging.warning(f"No se pudo determinar el país desde la selección: {selection_id}")
-            # No enviar la lista de países nuevamente, solo pedir que seleccione de nuevo
-            response = "Lo siento, no pude identificar el país seleccionado. Por favor, selecciona un país de la lista enviada anteriormente."
-            return response
+            send_country_selection_list(wa_id)
+            response = "Lo siento, no pude identificar el país seleccionado. Por favor, intenta seleccionar de nuevo."
+            
+        # Actualizar contexto y retornar
+        session_manager.update_session(wa_id, context=context)
+        return response
     
     # Paso 1: Recopilar la descripción del problema
     if 'ticket_step' not in context or context['ticket_step'] == 'description':
-        logging.info(f"Recopilando descripción del ticket para {name}: {message_body[:30]}...")
         context['ticket_description'] = message_body
         
         # Generar asunto automáticamente
         context['ticket_subject'] = generate_ticket_subject(message_body)
-        logging.info(f"Asunto generado para ticket: {context['ticket_subject']}")
         
         # Avanzar al paso de selección de país
         context['ticket_step'] = 'country'
         
         # Enviar lista de selección de países
-        try:
-            send_country_selection_list(wa_id)
-            logging.info(f"Lista de países enviada a {name}")
-        except Exception as e:
-            logging.error(f"Error al enviar lista de países: {str(e)}")
-            # Fallback a mensaje de texto
-            response = "Por favor, indica el país donde se encuentra el proyecto (Guatemala, El Salvador, Honduras, Nicaragua, Costa Rica, Panamá, Jamaica o Barbados):"
-            session_manager.update_session(wa_id, context=context)
-            return response
+        send_country_selection_list(wa_id)
         
         response = "Gracias por proporcionar la descripción. Por favor, selecciona el país donde se encuentra el proyecto de la lista que aparece a continuación."
     
-    # Paso intermedio: si estamos en el paso country pero recibimos un mensaje de texto en lugar de selección
-    elif context['ticket_step'] == 'country' and session.get('last_message_type') != 'interactive_list':
-        logging.info(f"Recibido texto para selección de país: {message_body}")
-        # Intentar interpretar el nombre del país
-        country_name = message_body.strip().title()
-        country_id = None
-        
-        # Mapeo inverso de nombres a IDs
-        country_name_to_id = {
-            "Guatemala": 90,
-            "El Salvador": 209,
-            "Honduras": 96,
-            "Nicaragua": 164,
-            "Costa Rica": 50,
-            "Panamá": 172,
-            "Panama": 172,
-            "Jamaica": 111,
-            "Barbados": 18
-        }
-        
-        # Intentar encontrar coincidencias parciales
-        for name_key, id_val in country_name_to_id.items():
-            if name_key.lower() in country_name.lower():
-                country_id = id_val
-                country_name = name_key
-                break
-        
-        if country_id:
-            context['ticket_country_id'] = country_id
-            context['ticket_country_name'] = country_name
-            context['ticket_step'] = 'email'
-            logging.info(f"País identificado desde texto: {country_name} (ID: {country_id})")
-            response = "Gracias por indicar el país. ¿Podrías proporcionarme tu correo electrónico para que podamos dar seguimiento a tu caso? Si prefieres no compartirlo, puedes responder 'omitir'."
-        else:
-            logging.warning(f"No se pudo identificar el país desde el texto: {country_name}")
-            response = "Lo siento, no pude identificar el país mencionado. Por favor, asegúrate de escribir el nombre correctamente o selecciona de la lista enviada anteriormente."
-    
-    # Paso 2: Solicitar email
+    # Paso 2: Solicitar email (el país se maneja a través de la lista interactiva)
     elif context['ticket_step'] == 'email':
         if message_body.lower() in ['no', 'n', 'paso', 'skip', 'omitir']:
             context['ticket_email'] = ""
-            logging.info(f"Usuario {name} optó por omitir correo electrónico")
         else:
             context['ticket_email'] = message_body
-            logging.info(f"Correo electrónico proporcionado por {name}")
         
         context['ticket_step'] = 'confirmation'
         
@@ -674,7 +622,6 @@ def handle_ticket_creation(wa_id, name, message_body, session):
     
     else:
         # Si por alguna razón el paso no está definido correctamente
-        logging.error(f"Paso de ticket indefinido para {name}: {context.get('ticket_step', 'None')}")
         response = "Lo siento, hubo un problema con el proceso de creación del ticket. ¿Puedes intentarlo de nuevo?"
         session_manager.update_session(wa_id, state='AWAITING_QUERY', context={})
     
@@ -683,8 +630,6 @@ def handle_ticket_creation(wa_id, name, message_body, session):
         session_manager.update_session(wa_id, context=context)
         
     return response
-
-# Esta sección reemplaza la función process_message existente
 
 def process_message(message_data):
     """
@@ -698,13 +643,6 @@ def process_message(message_data):
     name = message_data["name"]
     message_type = message_data["type"]
     
-    # Logging detallado para diagnóstico
-    logging.info(f"Procesando mensaje de {name} ({wa_id}), tipo: {message_type}")
-    if message_type == "text":
-        logging.info(f"Contenido del mensaje: {message_data['body'][:50]}...")
-    elif message_type.startswith("interactive"):
-        logging.info(f"Respuesta interactiva: {message_data.get('selection_id', 'N/A')}, texto: {message_data.get('body', 'N/A')}")
-    
     # Obtener o crear sesión
     session = session_manager.get_session(wa_id)
     
@@ -715,7 +653,6 @@ def process_message(message_data):
             last_message_type=message_type,
             last_selection_id=message_data.get('selection_id', '')
         )
-        logging.info(f"Información interactiva guardada en sesión: {message_type}, ID: {message_data.get('selection_id', 'N/A')}")
     
     # Manejar diferentes tipos de mensajes
     if message_type == "text":
@@ -754,8 +691,7 @@ def process_message(message_data):
             session_manager.update_session(
                 wa_id, 
                 state='TICKET_CREATION', 
-                context={'ticket_step': 'description'},
-                last_message_type='text'  # Resetear tipo de mensaje
+                context={'ticket_step': 'description'}
             )
             
         else:
@@ -775,25 +711,12 @@ def process_message(message_data):
         
         # Agregar mensaje al historial
         session_manager.add_message_to_history(wa_id, 'user', f"[Seleccionó: {selection_text}]")
-        logging.info(f"Usuario {name} seleccionó: {selection_text} (ID: {selection_id})")
         
-        # Si estamos en proceso de creación de ticket y en el paso de país
+        # Si estamos en proceso de creación de ticket, manejar selección de país
         if session['state'] == 'TICKET_CREATION' and session['context'].get('ticket_step') == 'country':
-            # Actualizar sesión explícitamente antes de procesar la selección
-            session_manager.update_session(
-                wa_id, 
-                last_message_type="interactive_list",
-                last_selection_id=selection_id
-            )
-            
-            # Obtener la sesión actualizada
-            session = session_manager.get_session(wa_id)
-            
-            # Procesar la selección
             response = handle_ticket_creation(wa_id, name, selection_text, session)
         else:
             # Si no estamos en el flujo esperado, proporcionar una respuesta general
-            logging.warning(f"Recibida selección interactiva fuera del flujo esperado: {selection_text}")
             response = f"Has seleccionado: {selection_text}. ¿En qué puedo ayudarte?"
             
     else:
