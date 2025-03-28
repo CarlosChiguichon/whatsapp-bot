@@ -212,7 +212,7 @@ def send_market_segment_list(wa_id):
             {"id": "segment_1", "title": "Residencial", "description": "DG"},
             {"id": "segment_2", "title": "Comercial e Industrial", "description": "C&I"},
             {"id": "segment_3", "title": "Gran Escala", "description": "Utility Scale"},
-            {"id": "segment_4", "title": "Misceláneo", "description": "Miscelaneous"},
+            {"id": "segment_4", "title": "Misceláneo", "description": "Miscelaneous},
             {"id": "segment_6", "title": "Almacenamiento (UT)", "description": "Utilty Scale"},
             {"id": "segment_7", "title": "Almacenamiento (C&I)", "description": "Commercial & Industrial"}
         ]
@@ -236,7 +236,7 @@ def send_market_segment_list(wa_id):
                 "text": body_text
             },
             "footer": {
-                "text": "ON - Pre&Post Support"
+                "text": "ON Soporte"
             },
             "action": {
                 "button": button_text,
