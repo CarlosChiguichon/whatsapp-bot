@@ -1,0 +1,47 @@
+version: '3.8'
+services:
+  whatsapp-bot:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+      - prometheus
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  ngrok:
+    image: wernight/ngrok:latest
+    ports:
+      - "4040:4040"
+    environment:
+      - NGROK_AUTH=${NGROK_AUTHTOKEN}
+      - NGROK_REGION=${NGROK_REGION:-us}
+      - NGROK_HOSTNAME=${NGROK_DOMAIN}
+      - NGROK_PORT=whatsapp-bot:8000
+    depends_on:
+      - whatsapp-bot
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  prometheus_data:

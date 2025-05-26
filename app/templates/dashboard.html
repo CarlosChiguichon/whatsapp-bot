@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bot Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #1c1e21;
+        }
+        .header {
+            background: #075e54;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #e4e6eb;
+        }
+        .stat-card h3 {
+            font-size: 0.875rem;
+            color: #65676b;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #075e54;
+        }
+        .sessions-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+        }
+        .sessions-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #e4e6eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .session-item {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #e4e6eb;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .session-item:hover {
+            background: #f8f9fa;
+        }
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .session-name {
+            font-weight: 600;
+            color: #1c1e21;
+        }
+        .session-state {
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .state-active { background: #e3f2e1; color: #1e7e1e; }
+        .state-waiting { background: #fff3cd; color: #856404; }
+        .state-ticket { background: #cfe2ff; color: #084298; }
+        .message-bubble {
+            max-width: 70%;
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            margin: 0.5rem 0;
+            word-wrap: break-word;
+        }
+        .message-user {
+            background: #e3f2e1;
+            margin-left: auto;
+            text-align: right;
+        }
+        .message-assistant {
+            background: #f1f3f4;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            margin: 2rem auto;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #e4e6eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-body {
+            padding: 1.5rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #65676b;
+        }
+        .queue-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .queue-item {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .refresh-btn {
+            background: #25d366;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .refresh-btn:hover {
+            background: #1ebe57;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>WhatsApp Bot Dashboard</h1>
+        <div>
+            <span id="last-update"></span>
+            <a href="/dashboard/logout" style="color: white; margin-left: 2rem;">Cerrar sesión</a>
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- Estadísticas principales -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Sesiones Activas</h3>
+                <div class="stat-value" id="active-sessions">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Mensajes Hoy</h3>
+                <div class="stat-value" id="messages-today">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Tickets Creados</h3>
+                <div class="stat-value" id="tickets-today">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Leads Creados</h3>
+                <div class="stat-value" id="leads-today">-</div>
+            </div>
+        </div>
+        
+        <!-- Estado de colas -->
+        <div class="stat-card">
+            <h3>Estado de Colas</h3>
+            <div class="queue-stats" id="queue-stats"></div>
+        </div>
+        
+        <!-- Lista de sesiones -->
+        <div class="sessions-container">
+            <div class="sessions-header">
+                <h2>Sesiones Activas</h2>
+                <button class="refresh-btn" onclick="refreshData()">Actualizar</button>
+            </div>
+            <div id="sessions-list"></div>
+        </div>
+    </div>
+    
+    <!-- Modal para detalles de sesión -->
+    <div id="session-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Detalles de Conversación</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Actualización automática cada 5 segundos
+        setInterval(refreshData, 5000);
+        refreshData();
+        
+        async function refreshData() {
+            try {
+                // Obtener estadísticas
+                const statsRes = await axios.get('/dashboard/api/stats');
+                const stats = statsRes.data;
+                
+                document.getElementById('active-sessions').textContent = stats.active_sessions;
+                document.getElementById('messages-today').textContent = stats.total_messages_today;
+                document.getElementById('tickets-today').textContent = stats.tickets_created_today;
+                document.getElementById('leads-today').textContent = stats.leads_created_today;
+                
+                // Mostrar estadísticas de colas
+                const queueStats = document.getElementById('queue-stats');
+                queueStats.innerHTML = '';
+                for (const [queue, data] of Object.entries(stats.queue_stats || {})) {
+                    queueStats.innerHTML += `
+                        <div class="queue-item">
+                            <h4>${queue}</h4>
+                            <div>Pendientes: ${data.pending}</div>
+                            <div>Procesando: ${data.processing}</div>
+                            <div>Fallidos: ${data.failed}</div>
+                        </div>
+                    `;
+                }
+                
+                // Obtener sesiones
+                const sessionsRes = await axios.get('/dashboard/api/sessions');
+                displaySessions(sessionsRes.data);
+                
+                document.getElementById('last-update').textContent = 
+                    `Actualizado: ${new Date().toLocaleTimeString()}`;
+                    
+            } catch (error) {
+                console.error('Error actualizando datos:', error);
+            }
+        }
+        
+        function displaySessions(sessions) {
+            const container = document.getElementById('sessions-list');
+            container.innerHTML = '';
+            
+            if (sessions.length === 0) {
+                container.innerHTML = '<div class="session-item">No hay sesiones activas</div>';
+                return;
+            }
+            
+            sessions.forEach(session => {
+                const stateClass = getStateClass(session.state);
+                const item = document.createElement('div');
+                item.className = 'session-item';
+                item.onclick = () => showSessionDetail(session.wa_id);
+                
+                item.innerHTML = `
+                    <div class="session-header">
+                        <div>
+                            <div class="session-name">${session.name}</div>
+                            <div style="color: #65676b; font-size: 0.875rem;">
+                                ${session.wa_id} • ${session.messages_count} mensajes
+                            </div>
+                        </div>
+                        <span class="session-state ${stateClass}">${session.state}</span>
+                    </div>
+                    <div style="color: #65676b; font-size: 0.75rem;">
+                        Última actividad: ${new Date(session.last_activity).toLocaleString()}
+                    </div>
+                `;
+                
+                container.appendChild(item);
+            });
+        }
+        
+        function getStateClass(state) {
+            const stateMap = {
+                'AWAITING_QUERY': 'state-active',
+                'TICKET_CREATION': 'state-ticket',
+                'LEAD_CREATION': 'state-ticket',
+                'INITIAL': 'state-waiting'
+            };
+            return stateMap[state] || 'state-waiting';
+        }
+        
+        async function showSessionDetail(waId) {
+            try {
+                const res = await axios.get(`/dashboard/api/session/${waId}`);
+                const session = res.data;
+                
+                const modalBody = document.getElementById('modal-body');
+                modalBody.innerHTML = `
+                    <h3>Información de Sesión</h3>
+                    <p><strong>WhatsApp ID:</strong> ${session.wa_id}</p>
+                    <p><strong>Estado:</strong> ${session.state}</p>
+                    <p><strong>Creada:</strong> ${new Date(session.created_at).toLocaleString()}</p>
+                    <h3 style="margin-top: 1.5rem;">Conversación</h3>
+                    <div id="messages-container"></div>
+                `;
+                
+                // Mostrar mensajes
+                const messagesContainer = document.getElementById('messages-container');
+                session.message_history.forEach(msg => {
+                    const bubble = document.createElement('div');
+                    bubble.className = `message-bubble message-${msg.role}`;
+                    bubble.textContent = msg.content;
+                    messagesContainer.appendChild(bubble);
+                });
+                
+                document.getElementById('session-modal').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Error obteniendo detalles:', error);
+            }
+        }
+        
+        function closeModal() {
+            document.getElementById('session-modal').style.display = 'none';
+        }
+        
+        // Cerrar modal al hacer clic fuera
+        window.onclick = function(event) {
+            const modal = document.getElementById('session-modal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
