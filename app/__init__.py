@@ -2,23 +2,42 @@ from flask import Flask
 import logging
 from app.config import load_config
 from app.integrations.whatsapp import init_whatsapp_config
-from app.core.queue_manager import QueueManager, RateLimiter
-from app.core.circuit_breaker import CircuitBreaker
-from app.core.knowledge_base import ProductKnowledgeBase
 from app.core.metrics import register_metrics
 
-# Al inicio del archivo, después de los imports existentes
+# Importaciones con fallbacks
 try:
     from app.core.queue_manager import QueueManager, RateLimiter
 except ImportError:
     # Fallback si no existe
+    logging.warning("Queue manager no disponible, usando fallback")
     class QueueManager:
-        def __init__(self, *args): pass
+        def __init__(self, *args): 
+            self.redis_client = None
         def register_processor(self, *args): pass
         def start_workers(self, *args): pass
     
     class RateLimiter:
         def __init__(self, *args): pass
+
+try:
+    from app.core.circuit_breaker import CircuitBreaker
+except ImportError:
+    logging.warning("Circuit breaker no disponible, usando fallback")
+    class CircuitBreaker:
+        def __init__(self, *args, **kwargs): 
+            self.state = type('State', (), {'value': 'closed'})()
+        def get_status(self): 
+            return {'name': 'fallback', 'state': 'closed'}
+
+try:
+    from app.core.knowledge_base import ProductKnowledgeBase
+except ImportError:
+    logging.warning("Knowledge base no disponible, usando fallback")
+    class ProductKnowledgeBase:
+        def __init__(self): pass
+        def build_index(self, *args): pass
+        def save(self, *args): pass
+        def load(self, *args): pass
 
 def create_app():
     """Crea y configura la aplicación Flask con todas las mejoras."""
@@ -69,24 +88,51 @@ def init_components(app):
     
 def init_knowledge_base(app):
     """Inicializa la base de conocimientos con productos."""
-    import os
-    kb_path = "data/product_index.pkl"
-    
-    if os.path.exists(kb_path):
-        app.knowledge_base.load(kb_path)
-    else:
-        from app.data.products_loader import load_product_catalog
-        documents = load_product_catalog()
-        app.knowledge_base.build_index(documents)
-        app.knowledge_base.save(kb_path)
+    try:
+        import os
+        kb_path = "data/product_index.pkl"
+        
+        if os.path.exists(kb_path):
+            app.knowledge_base.load(kb_path)
+        else:
+            try:
+                from app.data.products_loader import load_product_catalog
+                documents = load_product_catalog()
+                app.knowledge_base.build_index(documents)
+                app.knowledge_base.save(kb_path)
+            except ImportError:
+                logging.warning("Products loader no disponible, usando datos por defecto")
+                # Usar algunos productos por defecto
+                default_docs = [
+                    {"content": "Paneles solares monocristalinos alta eficiencia"},
+                    {"content": "Inversores string para instalaciones residenciales"},
+                    {"content": "Baterías de litio para almacenamiento de energía"}
+                ]
+                app.knowledge_base.build_index(default_docs)
+    except Exception as e:
+        logging.error(f"Error inicializando base de conocimientos: {str(e)}")
 
 def register_blueprints(app):
     """Registra todos los blueprints de la aplicación."""
-    from app.views.webhook import webhook_bp
-    from app.views.health import health_bp
-    from app.views.dashboard import dashboard_bp
+    try:
+        from app.views.webhook import webhook_bp
+        app.register_blueprint(webhook_bp)
+        logging.info("Webhook blueprint registrado")
+    except ImportError as e:
+        logging.error(f"Error importando webhook blueprint: {str(e)}")
     
-    app.register_blueprint(webhook_bp)
-    app.register_blueprint(health_bp)
-    app.register_blueprint(dashboard_bp)
-    logging.info("Blueprints registrados")
+    try:
+        from app.views.health import health_bp
+        app.register_blueprint(health_bp)
+        logging.info("Health blueprint registrado")
+    except ImportError as e:
+        logging.error(f"Error importando health blueprint: {str(e)}")
+    
+    try:
+        from app.views.dashboard import dashboard_bp
+        app.register_blueprint(dashboard_bp)
+        logging.info("Dashboard blueprint registrado")
+    except ImportError as e:
+        logging.error(f"Error importando dashboard blueprint: {str(e)}")
+    
+    logging.info("Proceso de registro de blueprints completado")
