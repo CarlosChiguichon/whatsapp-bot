@@ -6,7 +6,6 @@ import time
 messages_received = Counter('whatsapp_messages_received', 'Total messages received', ['type'])
 messages_sent = Counter('whatsapp_messages_sent', 'Total messages sent', ['status'])
 tickets_created = Counter('odoo_tickets_created', 'Total tickets created', ['status'])
-leads_created = Counter('odoo_leads_created', 'Total leads created', ['status'])
 response_time = Histogram('whatsapp_response_time', 'Response time in seconds')
 queue_size = Gauge('queue_size', 'Current queue size', ['queue_name'])
 active_sessions = Gauge('whatsapp_active_sessions', 'Number of active sessions')

@@ -79,16 +79,15 @@ def get_system_prompt(name):
     return f"""Eres un asistente virtual de WhatsApp para Operadores Nacionales, una empresa del sector de energía solar.
 
 INSTRUCCIONES PRINCIPALES:
-- Recopila información del cliente y crea tickets de soporte cuando sea necesario.
-- Si el cliente está interesado en cotizaciones o comprar equipos de energía solar, trata esto como un lead potencial.
+- Ayuda a los clientes con consultas generales sobre energía solar y los servicios de la empresa.
+- Si detectas que el cliente necesita soporte técnico o tiene un problema, el sistema automáticamente le enviará un formulario especializado.
 - Solo responde consultas relacionadas con el negocio de energía solar y los productos de la empresa.
 - Sé amable, profesional y conciso en tus respuestas.
 
 PROTOCOLO DE CONVERSACIÓN:
 - En tu primer mensaje, saluda al cliente por su nombre ({name}) y agradécele por contactar a Operadores Nacionales.
 - Menciona el nombre de la empresa (Operadores Nacionales) solo en el primer mensaje y al finalizar la conversación.
-- Si el cliente tiene un problema técnico, recopila detalles para crear un ticket de soporte.
-- Para cotizaciones o compras, pregunta sobre sus necesidades específicas.
+- Si el cliente pregunta sobre productos o servicios, proporciona información general y sugiérele contactar al equipo comercial.
 
 Al finalizar la conversación, agradece al cliente por contactar y menciona nuevamente el nombre de la empresa.
 
@@ -120,36 +119,6 @@ def detect_ticket_intent(message):
             
     return False
 
-def detect_sales_intent(message):
-    """
-    Detecta si el mensaje indica intención de compra o cotización.
-    
-    Args:
-        message (str): Mensaje del usuario
-        
-    Returns:
-        bool: True si se detecta intención de compra, False en caso contrario
-    """
-    sales_keywords = [
-        "comprar", "precio", "costo", "cotización", "cotizar", "presupuesto",
-        "vender", "adquirir", "cuánto cuesta", "cuánto vale", "oferta",
-        "buy", "price", "quote", "cost", "purchase", "offer", "deal",
-        "productos", "catálogo", "paneles", "inversores", "baterías",
-        "cotizacion", "precios", "costos", "cuanto", "tarifa", "pagar", 
-        "interesado", "interesada", "interes", "sistema solar", "instalacion",
-        "compra", "adquisicion", "solar", "fotovoltaico", "energia solar",
-        "kwp", "kw", "mw", "megawatt", "kilowatt", "instalar", "me interesa",
-        "proyecto", "residencial", "comercial", "industrial", "consumo",
-        "factura", "recibo", "luz", "energía", "ahorro", "ahorrar"
-    ]
-    
-    message_lower = message.lower()
-    
-    for keyword in sales_keywords:
-        if keyword in message_lower:
-            return True
-            
-    return False
 
 def generate_ai_response(message_body, wa_id, name):
     """
@@ -201,12 +170,6 @@ def generate_ai_response(message_body, wa_id, name):
             messages.append({
                 "role": "system", 
                 "content": "Esta es la primera interacción con este cliente. Asegúrate de presentarte en nombre de Operadores Nacionales."
-            })
-            
-        if detect_sales_intent(message_body):
-            messages.append({
-                "role": "system", 
-                "content": "El cliente parece interesado en productos o cotizaciones. Pregunta sobre sus necesidades específicas para crear un lead comercial."
             })
         
         # Llamar a la API de Chat Completions

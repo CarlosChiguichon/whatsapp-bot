@@ -48,7 +48,6 @@ def get_stats():
         'active_sessions': len(session_manager.sessions),
         'total_messages_today': 0,
         'tickets_created_today': 0,
-        'leads_created_today': 0,
         'avg_response_time': 0,
         'queue_stats': {}
     }

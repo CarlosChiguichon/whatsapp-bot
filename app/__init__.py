@@ -57,7 +57,6 @@ def init_components(app):
     # Circuit breakers para servicios externos
     app.circuit_breakers = {
         'odoo_tickets': CircuitBreaker("odoo_tickets", failure_threshold=3),
-        'odoo_leads': CircuitBreaker("odoo_leads", failure_threshold=3),
         'openai': CircuitBreaker("openai", failure_threshold=5)
     }
     
